@@ -6,7 +6,7 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 
 XPCOMUtils.defineLazyGetter(this, "Strings", function() {
-  return Services.strings.createBundle("chrome://youraddon/locale/strings.properties");
+  return Services.strings.createBundle("chrome://alwaysreader/locale/strings.properties");
 });
 
 XPCOMUtils.defineLazyModuleGetter(this, "Log", "resource://gre/modules/AndroidLog.jsm", "AndroidLog");
@@ -46,9 +46,13 @@ var AlwaysReader = {
 
   _toggleProgressListener: function(webProgress, isAdd) {
     if (isAdd) {
-      webProgress.addProgressListener(this, webProgress.NOTIFY_ALL);
+      webProgress.addProgressListener(this, webProgress.NOTIFY_LOCATION);
     } else {
-      webProgress.removeProgressListener(this);
+      try {
+        webProgress.removeProgressListener(this);
+      } catch (e) {
+        Cu.reportError(e);
+      }
     }
   },
 
@@ -64,14 +68,24 @@ var AlwaysReader = {
       return;
     }
 
-    let sessionHistory = webProgress.DOMWindow.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIWebNavigation).sessionHistory;
-    let lastUrl = sessionHistory.getEntryAtIndex(sessionHistory.index - 1, false).URI.spec;
-
     let readerUrl = "about:reader?url=" + url;
 
+    let sessionHistory = webProgress.DOMWindow.QueryInterface(Ci.nsIInterfaceRequestor).getInterface(Ci.nsIWebNavigation).sessionHistory;
+    let backUrl = sessionHistory.getEntryAtIndex(sessionHistory.index - 1, false).URI.spec;
+
     // If reader view fails, it falls back to loading the original URL. Let's avoid an infinite loop.
-    if (lastUrl == readerUrl) {
+    if (backUrl == readerUrl) {
       return;
+    }
+
+    // If we're not at the last entry in session hisotry, check to see if the user is trying to go back
+    // from a reader URL.
+    if (sessionHistory.index + 1 < sessionHistory.count) {
+      let forwardUrl = sessionHistory.getEntryAtIndex(sessionHistory.index + 1, false).URI.spec;
+      if (forwardUrl == readerUrl) {
+        browser.goBack();
+        return;
+      }
     }
 
     browser.loadURI(readerUrl);
